@@ -274,11 +274,19 @@
   .ball-toggle.state-yes::before,
   .ball-toggle.state-yes::after{
     content:'';position:absolute;inset:3px;border-radius:50%;
-    border:1.3px solid rgba(58,66,0,0.35);
+    border:1.3px solid rgba(0,0,0,0.22);
     pointer-events:none;
   }
   .ball-toggle.state-yes::before{clip-path:ellipse(46% 62% at 28% 50%);}
   .ball-toggle.state-yes::after{clip-path:ellipse(46% 62% at 72% 50%);}
+
+  /* 참여자별 참석(체크) 색상 구분 */
+  .ball-toggle.state-yes[data-member="경민"]{ background:#F9C6D9; border-color:#E88CAE; color:#7A1F42; } /* 분홍 */
+  .ball-toggle.state-yes[data-member="민지"]{ background:#FBC2A6; border-color:#F0906B; color:#7A2E12; } /* 연주홍 */
+  .ball-toggle.state-yes[data-member="세아"]{ background:#F7E48A; border-color:#E0C94A; color:#6B5A08; } /* 연노랑 */
+  .ball-toggle.state-yes[data-member="나경"]{ background:#D8E24E; border-color:#8B9A1E; color:#3A4200; } /* 연초록 (기존 색상) */
+  .ball-toggle.state-yes[data-member="형준"]{ background:#A9D9F2; border-color:#5FAEDB; color:#123A57; } /* 하늘 */
+  .ball-toggle.state-yes[data-member="남곤"]{ background:#D8C3EE; border-color:#B592D9; color:#3D2054; } /* 연보라 */
 
   .ball-toggle.state-no{
     background:var(--clay-bg);
@@ -981,12 +989,12 @@ function computeAttendanceCounts(){
   const result = {};
   MEMBERS.forEach(m => result[m] = { attended: 0, absent: 0 });
   SESSIONS.forEach(s => {
-    if(s.status === 'cancelled') return;
-    const rec = attendance[s.idx];
-    if(!rec) return;
+    // 취소된 회차, 그리고 아직 작성 중(작성 마감 전)이라 결과가 확정되지 않은 회차는 집계에서 제외
+    if(s.status === 'cancelled' || s.status === 'open') return;
+    const rec = attendance[s.idx] || {};
     MEMBERS.forEach(m => {
       if(rec[m] === '참석') result[m].attended++;
-      else if(rec[m] === '불참') result[m].absent++;
+      else result[m].absent++; // 빈칸(미입력)도 불참으로 집계
     });
   });
   return result;
