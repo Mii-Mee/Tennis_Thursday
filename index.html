@@ -805,9 +805,9 @@ let myName = null;
 let adminMode = false;
 let filter = 'upcoming';
 let storageReady = true;
-let guestSaveTimer = null;
-let canballSaveTimer = null;
-let memoSaveTimer = null;
+let guestSaveTimers = {}; // idx별 독립 디바운스 타이머 (다른 회차 편집이 서로 취소하지 않도록)
+let canballSaveTimers = {};
+let memoSaveTimers = {};
 let lastLocalEditAt = 0; // 가장 최근에 로컬에서 뭔가를 편집한 시각 (자동 새로고침이 덮어쓰지 않도록)
 
 // ── 데이터 저장소: 구글시트(Apps Script 웹앱)를 유일한 소스로 사용 ──
@@ -866,6 +866,36 @@ async function saveRemoteKey(key, value){
   }
 }
 
+// 회차(idx) 하나만 서버에 병합 저장 — 다른 사람이 동시에 다른 회차를 고쳐도 서로 덮어쓰지 않는다.
+async function saveRemoteMergeIdx(key, idx, value){
+  if(!isApiConfigured()) return { ok: false, error: 'API_URL이 설정되지 않았어요.' };
+  try{
+    await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'mergeIdx', key, idx, value }),
+    });
+    return { ok: true };
+  }catch(e){
+    return { ok: false, error: (e && e.message) ? e.message : String(e) };
+  }
+}
+
+// 참석 체크는 회차+회원 단위까지 병합 저장 — 같은 회차라도 다른 회원을 동시에 체크하면 서로 덮어쓰지 않는다.
+async function saveRemoteMergeAttendance(idx, member, value){
+  if(!isApiConfigured()) return { ok: false, error: 'API_URL이 설정되지 않았어요.' };
+  try{
+    await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'mergeAttendance', idx, member, value }),
+    });
+    return { ok: true };
+  }catch(e){
+    return { ok: false, error: (e && e.message) ? e.message : String(e) };
+  }
+}
+
 async function loadAttendance(){ return remoteState.attendance; }
 async function loadGuests(){ return remoteState.guests; }
 async function loadCancelled(){ return remoteState.cancelled; }
@@ -873,10 +903,12 @@ async function loadCanballs(){ return remoteState.canballs; }
 async function loadMemos(){ return remoteState.memos; }
 
 async function saveAttendance(){
+  // 최초 실행 시 시드 데이터를 한 번에 저장할 때만 사용 (전체 덮어쓰기)
   const result = await saveRemoteKey('attendance', attendance);
   setSync(result.ok ? '저장됨' : `저장 실패: ${result.error}`);
 }
 async function saveGuests(){
+  // 최초 실행 시 시드 데이터를 한 번에 저장할 때만 사용 (전체 덮어쓰기)
   const result = await saveRemoteKey('guests', guests);
   setSync(result.ok ? '저장됨' : `저장 실패: ${result.error}`);
 }
@@ -885,11 +917,33 @@ async function saveCancelled(){
   setSync(result.ok ? '저장됨' : `저장 실패: ${result.error}`);
 }
 async function saveCanballs(){
+  // 최초 실행 시 시드 데이터를 한 번에 저장할 때만 사용 (전체 덮어쓰기)
   const result = await saveRemoteKey('canballs', canballs);
   setSync(result.ok ? '저장됨' : `저장 실패: ${result.error}`);
 }
 async function saveMemos(){
+  // 최초 실행 시 시드 데이터를 한 번에 저장할 때만 사용 (전체 덮어쓰기)
   const result = await saveRemoteKey('memos', memos);
+  setSync(result.ok ? '저장됨' : `저장 실패: ${result.error}`);
+}
+
+// ── 평소 편집은 아래의 회차(idx) 단위 병합 저장을 사용한다 ──
+// 다른 사람이 동시에 다른 회차/항목을 수정해도 서로 덮어쓰지 않도록,
+// attendance/guests/canballs/memos는 항상 "그 회차 하나"만 서버에 병합 저장한다.
+async function saveAttendanceCell(idx, member, value){
+  const result = await saveRemoteMergeAttendance(idx, member, value);
+  setSync(result.ok ? '저장됨' : `저장 실패: ${result.error}`);
+}
+async function saveGuestsIdx(idx){
+  const result = await saveRemoteMergeIdx('guests', idx, guests[idx]);
+  setSync(result.ok ? '저장됨' : `저장 실패: ${result.error}`);
+}
+async function saveCanballsIdx(idx){
+  const result = await saveRemoteMergeIdx('canballs', idx, canballs[idx]);
+  setSync(result.ok ? '저장됨' : `저장 실패: ${result.error}`);
+}
+async function saveMemosIdx(idx){
+  const result = await saveRemoteMergeIdx('memos', idx, memos[idx]);
   setSync(result.ok ? '저장됨' : `저장 실패: ${result.error}`);
 }
 
@@ -1065,7 +1119,7 @@ function renderSessions(){
       lastLocalEditAt = Date.now();
       renderSessions();
       setSync('저장 중…');
-      saveAttendance();
+      saveAttendanceCell(idx, member, next);
     });
   });
 
@@ -1079,8 +1133,8 @@ function renderSessions(){
       lastLocalEditAt = Date.now();
       updateGuestTotal(idx);
       setSync('저장 중…');
-      clearTimeout(guestSaveTimer);
-      guestSaveTimer = setTimeout(saveGuests, 500);
+      clearTimeout(guestSaveTimers[idx]);
+      guestSaveTimers[idx] = setTimeout(()=>saveGuestsIdx(idx), 500);
     });
   });
 
@@ -1093,8 +1147,8 @@ function renderSessions(){
       lastLocalEditAt = Date.now();
       updateGuestTotal(idx);
       setSync('저장 중…');
-      clearTimeout(guestSaveTimer);
-      guestSaveTimer = setTimeout(saveGuests, 500);
+      clearTimeout(guestSaveTimers[idx]);
+      guestSaveTimers[idx] = setTimeout(()=>saveGuestsIdx(idx), 500);
     });
   });
 
@@ -1119,8 +1173,8 @@ function renderSessions(){
       lastLocalEditAt = Date.now();
       renderCanballSummary();
       setSync('저장 중…');
-      clearTimeout(canballSaveTimer);
-      canballSaveTimer = setTimeout(saveCanballs, 500);
+      clearTimeout(canballSaveTimers[idx]);
+      canballSaveTimers[idx] = setTimeout(()=>saveCanballsIdx(idx), 500);
     });
   });
 
@@ -1130,8 +1184,8 @@ function renderSessions(){
       memos[idx] = input.value;
       lastLocalEditAt = Date.now();
       setSync('저장 중…');
-      clearTimeout(memoSaveTimer);
-      memoSaveTimer = setTimeout(saveMemos, 500);
+      clearTimeout(memoSaveTimers[idx]);
+      memoSaveTimers[idx] = setTimeout(()=>saveMemosIdx(idx), 500);
     });
   });
 }
