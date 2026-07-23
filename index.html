@@ -416,6 +416,33 @@
   .settlement-attendance b{
     color:var(--court);font-size:13.5px;font-weight:800;
   }
+  .absent-details{
+    margin-bottom:8px;
+  }
+  .absent-details summary{
+    font-size:11.5px;font-weight:700;color:var(--clay);
+    cursor:pointer;
+    padding:6px 10px;
+    background:var(--clay-bg);
+    border-radius:8px;
+    list-style:none;
+  }
+  .absent-details summary::-webkit-details-marker{display:none;}
+  .absent-details summary::before{
+    content:'▸ ';
+  }
+  .absent-details[open] summary::before{
+    content:'▾ ';
+  }
+  .absent-round-list{
+    display:flex;flex-wrap:wrap;gap:6px;
+    padding:8px 2px 2px;
+  }
+  .absent-round-row{
+    font-size:11px;font-weight:600;color:var(--ink-soft);
+    background:#F1EEE3;
+    padding:4px 9px;border-radius:999px;
+  }
   .settlement-rounds{
     font-size:11.5px;color:var(--ink-soft);
     display:flex;flex-direction:column;gap:4px;
@@ -996,14 +1023,18 @@ function computeSettlement(){
 // 회원별 참석/불참 횟수 집계 (우천취소 회차는 제외)
 function computeAttendanceCounts(){
   const result = {};
-  MEMBERS.forEach(m => result[m] = { attended: 0, absent: 0 });
+  MEMBERS.forEach(m => result[m] = { attended: 0, absent: 0, absentRounds: [] });
   SESSIONS.forEach(s => {
-    // 취소된 회차, 그리고 아직 작성 중(작성 마감 전)이라 결과가 확정되지 않은 회차는 집계에서 제외
-    if(s.status === 'cancelled' || s.status === 'open') return;
+    // 우천취소된 회차(status==='cancelled', round===null)와
+    // 아직 작성 중(작성 마감 전)이라 결과가 확정되지 않은 회차는 집계에서 제외
+    if(s.status === 'cancelled' || s.round === null || s.status === 'open') return;
     const rec = attendance[s.idx] || {};
     MEMBERS.forEach(m => {
       if(rec[m] === '참석') result[m].attended++;
-      else result[m].absent++; // 빈칸(미입력)도 불참으로 집계
+      else {
+        result[m].absent++; // 빈칸(미입력)도 불참으로 집계
+        result[m].absentRounds.push({ round: s.round, date: s.date });
+      }
     });
   });
   return result;
@@ -1021,6 +1052,9 @@ function renderSettlement(){
     const roundsHTML = info.rounds.length
       ? info.rounds.map(r => `<div class="settlement-round-row"><span>#${r.round} · ${r.date} · ${phaseLabel[r.phase]}</span><span>₩${Math.round(r.amount).toLocaleString()}</span></div>`).join('')
       : `<div class="settlement-empty">아직 받을 게스트비가 없어요.</div>`;
+    const absentRoundsHTML = att.absentRounds.length
+      ? att.absentRounds.map(r => `<div class="absent-round-row">#${r.round} · ${r.date}</div>`).join('')
+      : `<div class="settlement-empty">불참 회차가 없어요.</div>`;
     return `
       <div class="settlement-card">
         <div class="settlement-head">
@@ -1028,6 +1062,10 @@ function renderSettlement(){
           <span class="settlement-total">₩${Math.round(info.total).toLocaleString()}</span>
         </div>
         <div class="settlement-attendance">🎾 참석 <b>${att.attended}</b>회 · 불참 ${att.absent}회</div>
+        <details class="absent-details">
+          <summary>불참 회차 보기 (${att.absent})</summary>
+          <div class="absent-round-list">${absentRoundsHTML}</div>
+        </details>
         <div class="settlement-phase-row">
           <div class="settlement-phase">
             <span class="settlement-phase-label">1차 정산 (~${MID_SETTLEMENT_ROUND}회차)</span>
