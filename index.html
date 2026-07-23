@@ -1406,7 +1406,14 @@ document.getElementById('refreshBtnSessions').addEventListener('click', refreshF
 document.getElementById('refreshBtnSettlement').addEventListener('click', refreshFromServer);
 
 // 5초마다 자동으로 최신 데이터를 불러온다 (다른 사람이 바꾼 내용을 거의 실시간으로 반영)
-setInterval(refreshFromServer, 5000);
+// 단, 지금 어떤 입력칸(메모/게스트 이름/캔볼 등)에 커서가 가 있으면(타이핑 중이면)
+// 전체 다시 그리기로 인해 입력 중인 값이 지워지지 않도록 이번 주기는 건너뛴다.
+setInterval(()=>{
+  const active = document.activeElement;
+  const isTyping = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA');
+  if(isTyping) return;
+  refreshFromServer();
+}, 5000);
 
 // ── 구글시트 바로가기 (개인 기기에 링크 저장) ──
 const SHORTCUT_KEY = 'sheet-shortcut-url-v1';
