@@ -919,7 +919,9 @@ function renderStats(){
 function cardHTML(s){
   const statusClass = { open:'status-open', locked:'status-locked', done:'status-done', cancelled:'status-cancelled' }[s.status];
   const now = new Date();
-  const isFutureDate = s.dateObj > now;
+  const today = new Date(now); today.setHours(0,0,0,0);
+  const sessionDay = new Date(s.dateObj); sessionDay.setHours(0,0,0,0);
+  const isFutureDate = sessionDay >= today; // 오늘이거나 이후 (시간은 무시하고 날짜만 비교)
   const lockedOverridable = s.status === 'locked' && adminMode && isFutureDate;
   const doneOverridable = s.status === 'done' && adminMode;
   const isEditableSession = s.status === 'open' || lockedOverridable || doneOverridable;
