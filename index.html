@@ -577,6 +577,23 @@
     background:#F7F5F0;
     color:var(--ink);
   }
+  .memo-field{
+    margin-top:10px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .memo-label{
+    font-size:11.5px;font-weight:700;color:var(--ink-soft);white-space:nowrap;
+  }
+  .memo-field input{
+    flex:1;min-width:0;
+    font-family:inherit;font-size:12.5px;
+    padding:7px 10px;
+    border-radius:8px;
+    border:1.5px solid var(--line);
+    background:#F7F5F0;
+    color:var(--ink);
+  }
+  .memo-field input:focus{outline:2px solid var(--ball-dark);outline-offset:1px;}
   .export-row{
     display:flex;gap:8px;
     margin:10px 20px 0;
@@ -783,17 +800,19 @@ let cancelledSet = new Set(SEED_CANCELLED);
 let attendance = {};
 let guests = {};
 let canballs = {};
+let memos = {};
 let myName = null;
 let adminMode = false;
 let filter = 'upcoming';
 let storageReady = true;
 let guestSaveTimer = null;
 let canballSaveTimer = null;
+let memoSaveTimer = null;
 
 // ── 데이터 저장소: 구글시트(Apps Script 웹앱)를 유일한 소스로 사용 ──
-// attendance/guests/canballs/cancelled 4개 키는 팀 전체 공유 데이터라 시트에 저장.
+// attendance/guests/canballs/cancelled/memos 5개 키는 팀 전체 공유 데이터라 시트에 저장.
 // myName/adminMode는 사람별 설정이라 이 기기의 localStorage에만 저장.
-let remoteState = { attendance: null, guests: null, canballs: null, cancelled: null };
+let remoteState = { attendance: null, guests: null, canballs: null, cancelled: null, memos: null };
 
 function isApiConfigured(){
   return !!API_URL && API_URL.indexOf('PASTE_YOUR') === -1;
@@ -823,6 +842,7 @@ async function loadAllRemoteState(){
     remoteState.attendance = data.attendance || null;
     remoteState.guests = migrateGuests(data.guests || null);
     remoteState.canballs = data.canballs || null;
+    remoteState.memos = data.memos || null;
     remoteState.cancelled = Array.isArray(data.cancelled) ? new Set(data.cancelled) : null;
     setSheetStatus(true, '🟢 구글시트에 연결됐어요.');
   }catch(e){
@@ -849,6 +869,7 @@ async function loadAttendance(){ return remoteState.attendance; }
 async function loadGuests(){ return remoteState.guests; }
 async function loadCancelled(){ return remoteState.cancelled; }
 async function loadCanballs(){ return remoteState.canballs; }
+async function loadMemos(){ return remoteState.memos; }
 
 async function saveAttendance(){
   const result = await saveRemoteKey('attendance', attendance);
@@ -864,6 +885,10 @@ async function saveCancelled(){
 }
 async function saveCanballs(){
   const result = await saveRemoteKey('canballs', canballs);
+  setSync(result.ok ? '저장됨' : `저장 실패: ${result.error}`);
+}
+async function saveMemos(){
+  const result = await saveRemoteKey('memos', memos);
   setSync(result.ok ? '저장됨' : `저장 실패: ${result.error}`);
 }
 
@@ -988,6 +1013,8 @@ function cardHTML(s){
   const overrideTag = (lockedOverridable || doneOverridable) ? `<span class="override-tag">관리자 수정 가능</span>` : '';
   const canballCount = canballs[s.idx] != null ? canballs[s.idx] : '';
   const canballHTML = `<label class="canball-field">🎾 캔볼<input type="number" min="0" step="1" class="canball-input" data-idx="${s.idx}" value="${canballCount}" placeholder="0"></label>`;
+  const memoValue = (memos[s.idx] || '').replace(/"/g, '&quot;');
+  const memoHTML = `<div class="memo-field"><span class="memo-label">📝 메모</span><input type="text" class="memo-input" data-idx="${s.idx}" value="${memoValue}" placeholder="이 회차에 남길 메모"></div>`;
 
   return `
     <article class="${cardClasses.join(' ')}">
@@ -1008,6 +1035,7 @@ function cardHTML(s){
         ${canballHTML}
       </div>
       ${guestSectionHTML}
+      ${memoHTML}
     </article>`;
 }
 
@@ -1087,6 +1115,16 @@ function renderSessions(){
       setSync('저장 중…');
       clearTimeout(canballSaveTimer);
       canballSaveTimer = setTimeout(saveCanballs, 500);
+    });
+  });
+
+  list.querySelectorAll('.memo-input').forEach(input=>{
+    input.addEventListener('input', ()=>{
+      const idx = input.dataset.idx;
+      memos[idx] = input.value;
+      setSync('저장 중…');
+      clearTimeout(memoSaveTimer);
+      memoSaveTimer = setTimeout(saveMemos, 500);
     });
   });
 }
@@ -1289,6 +1327,7 @@ function buildExportDatasets(){
     row['게스트비 합계'] = guestTotal;
     row['캔볼'] = canballs[s.idx] != null && canballs[s.idx] !== '' ? canballs[s.idx] : '';
     row['비고'] = s.note || '';
+    row['메모'] = memos[s.idx] || ''; // S열: 참여자가 직접 남기는 자유 메모
     return row;
   });
 
@@ -1356,6 +1395,7 @@ async function refreshFromServer(){
   if(remoteState.attendance !== null) attendance = remoteState.attendance;
   if(remoteState.guests !== null) guests = remoteState.guests;
   if(remoteState.canballs !== null) canballs = remoteState.canballs;
+  if(remoteState.memos !== null) memos = remoteState.memos;
   if(remoteState.cancelled !== null) cancelledSet = remoteState.cancelled;
   SESSIONS = buildSessions(cancelledSet);
   renderStats();
@@ -1407,6 +1447,7 @@ document.getElementById('shortcutModalGo').addEventListener('click', ()=>{
   attendance = remoteState.attendance !== null ? remoteState.attendance : JSON.parse(JSON.stringify(SEED_ATTENDANCE));
   guests = remoteState.guests !== null ? remoteState.guests : JSON.parse(JSON.stringify(SEED_GUESTS));
   canballs = remoteState.canballs !== null ? remoteState.canballs : JSON.parse(JSON.stringify(SEED_CANBALLS));
+  memos = remoteState.memos !== null ? remoteState.memos : {};
 
   // 구글시트에 처음 연결됐고 아직 데이터가 없으면(최초 실행), 시드 데이터를 한 번 저장해둔다.
   if(isApiConfigured()){
