@@ -1132,7 +1132,7 @@ function renderSessions(){
       const idx = btn.dataset.idx;
       const member = btn.dataset.member;
       const cur = (attendance[idx] && attendance[idx][member]) || '';
-      const next = cur === '' ? '참석' : cur === '참석' ? '불참' : '';
+      const next = cur === '참석' ? '' : '참석'; // 참석 ↔ 미체크(=불참)만 토글
       attendance[idx] = { ...(attendance[idx]||{}), [member]: next };
       lastLocalEditAt = Date.now();
       renderSessions();
