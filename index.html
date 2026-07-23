@@ -808,6 +808,7 @@ let storageReady = true;
 let guestSaveTimer = null;
 let canballSaveTimer = null;
 let memoSaveTimer = null;
+let lastLocalEditAt = 0; // 가장 최근에 로컬에서 뭔가를 편집한 시각 (자동 새로고침이 덮어쓰지 않도록)
 
 // ── 데이터 저장소: 구글시트(Apps Script 웹앱)를 유일한 소스로 사용 ──
 // attendance/guests/canballs/cancelled/memos 5개 키는 팀 전체 공유 데이터라 시트에 저장.
@@ -1061,6 +1062,7 @@ function renderSessions(){
       const cur = (attendance[idx] && attendance[idx][member]) || '';
       const next = cur === '' ? '참석' : cur === '참석' ? '불참' : '';
       attendance[idx] = { ...(attendance[idx]||{}), [member]: next };
+      lastLocalEditAt = Date.now();
       renderSessions();
       setSync('저장 중…');
       saveAttendance();
@@ -1074,6 +1076,7 @@ function renderSessions(){
       const record = guests[idx] ? { names: guests[idx].names.slice(), fee: guests[idx].fee } : { names: [], fee: GUEST_FEE_DEFAULT };
       record.names[gi] = input.value;
       guests[idx] = record;
+      lastLocalEditAt = Date.now();
       updateGuestTotal(idx);
       setSync('저장 중…');
       clearTimeout(guestSaveTimer);
@@ -1087,6 +1090,7 @@ function renderSessions(){
       const record = guests[idx] ? { names: guests[idx].names.slice(), fee: guests[idx].fee } : { names: [], fee: GUEST_FEE_DEFAULT };
       record.fee = input.value === '' ? 0 : Number(input.value);
       guests[idx] = record;
+      lastLocalEditAt = Date.now();
       updateGuestTotal(idx);
       setSync('저장 중…');
       clearTimeout(guestSaveTimer);
@@ -1099,6 +1103,7 @@ function renderSessions(){
       const idx = Number(btn.dataset.idx);
       if(cancelledSet.has(idx)) cancelledSet.delete(idx);
       else cancelledSet.add(idx);
+      lastLocalEditAt = Date.now();
       SESSIONS = buildSessions(cancelledSet);
       renderStats();
       renderSessions();
@@ -1111,6 +1116,7 @@ function renderSessions(){
     input.addEventListener('input', ()=>{
       const idx = input.dataset.idx;
       canballs[idx] = input.value === '' ? 0 : Number(input.value);
+      lastLocalEditAt = Date.now();
       renderCanballSummary();
       setSync('저장 중…');
       clearTimeout(canballSaveTimer);
@@ -1122,6 +1128,7 @@ function renderSessions(){
     input.addEventListener('input', ()=>{
       const idx = input.dataset.idx;
       memos[idx] = input.value;
+      lastLocalEditAt = Date.now();
       setSync('저장 중…');
       clearTimeout(memoSaveTimer);
       memoSaveTimer = setTimeout(saveMemos, 500);
@@ -1406,12 +1413,13 @@ document.getElementById('refreshBtnSessions').addEventListener('click', refreshF
 document.getElementById('refreshBtnSettlement').addEventListener('click', refreshFromServer);
 
 // 5초마다 자동으로 최신 데이터를 불러온다 (다른 사람이 바꾼 내용을 거의 실시간으로 반영)
-// 단, 지금 어떤 입력칸(메모/게스트 이름/캔볼 등)에 커서가 가 있으면(타이핑 중이면)
-// 전체 다시 그리기로 인해 입력 중인 값이 지워지지 않도록 이번 주기는 건너뛴다.
+// 단, 지금 어떤 입력칸에 커서가 가 있거나(타이핑 중) 방금(2초 이내) 체크/입력 등을 했다면
+// 전체 다시 그리기로 인해 방금 한 조작이 아직 서버에 반영되기 전 값으로 덮어써지지 않도록 이번 주기는 건너뛴다.
 setInterval(()=>{
   const active = document.activeElement;
   const isTyping = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA');
-  if(isTyping) return;
+  const justEdited = (Date.now() - lastLocalEditAt) < 2000;
+  if(isTyping || justEdited) return;
   refreshFromServer();
 }, 5000);
 
