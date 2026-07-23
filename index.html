@@ -597,15 +597,24 @@ function formatDeadline(d){
   return `${d.getMonth()+1}월 ${d.getDate()}일(${wd}) 자정까지`;
 }
 
+function computeBaseStatus(sessionDate, deadlineDate, now){
+  const today = new Date(now); today.setHours(0,0,0,0);
+  const sessionDay = new Date(sessionDate); sessionDay.setHours(0,0,0,0);
+  if(sessionDay < today) return 'done';       // 회차 날짜가 이미 지났으면 종료
+  if(deadlineDate < now) return 'locked';     // 마감일(전 주 토요일 자정)이 지났으면 작성 마감
+  return 'open';                              // 그 외에는 작성 중
+}
+
 function buildSessions(cancelledSet){
   const sessions = [];
+  const now = new Date();
   let round = 0;
   let idx = 0;
   while(idx < 400){
     const date = addDays(BASE_DATE, idx * 7);
     const deadlineDate = addDays(date, -5); // 작성 마감: 전 주 토요일 자정
     const isCancelled = cancelledSet.has(idx);
-    const baseStatus = idx <= 10 ? 'done' : idx === 11 ? 'locked' : 'open';
+    const baseStatus = computeBaseStatus(date, deadlineDate, now);
     let displayRound = null;
     let note = '';
     if(!isCancelled){
