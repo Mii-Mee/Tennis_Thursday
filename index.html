@@ -435,6 +435,9 @@
     padding:9px 10px;border-radius:10px;border:1.5px solid var(--line);
     background:var(--surface);color:var(--ink-soft);cursor:pointer;
   }
+  .shortcut-modal-status{
+    margin:10px 0 0;font-size:11.5px;color:var(--court);font-weight:700;
+  }
 
   .main-tabs{
     display:flex;gap:8px;
@@ -703,6 +706,7 @@
       <button class="shortcut-modal-go" id="shortcutModalGo">바로가기</button>
       <button class="shortcut-modal-cancel" id="shortcutModalCancel">닫기</button>
     </div>
+    <p class="shortcut-modal-status" id="shortcutModalStatus"></p>
   </div>
 </div>
 
@@ -813,7 +817,7 @@ let lastLocalEditAt = 0; // 가장 최근에 로컬에서 뭔가를 편집한 �
 // ── 데이터 저장소: 구글시트(Apps Script 웹앱)를 유일한 소스로 사용 ──
 // attendance/guests/canballs/cancelled/memos 5개 키는 팀 전체 공유 데이터라 시트에 저장.
 // myName/adminMode는 사람별 설정이라 이 기기의 localStorage에만 저장.
-let remoteState = { attendance: null, guests: null, canballs: null, cancelled: null, memos: null };
+let remoteState = { attendance: null, guests: null, canballs: null, cancelled: null, memos: null, sheetLink: null };
 
 function isApiConfigured(){
   return !!API_URL && API_URL.indexOf('PASTE_YOUR') === -1;
@@ -844,6 +848,7 @@ async function loadAllRemoteState(){
     remoteState.guests = migrateGuests(data.guests || null);
     remoteState.canballs = data.canballs || null;
     remoteState.memos = data.memos || null;
+    remoteState.sheetLink = data.sheetLink || null;
     remoteState.cancelled = Array.isArray(data.cancelled) ? new Set(data.cancelled) : null;
     setSheetStatus(true, '🟢 구글시트에 연결됐어요.');
   }catch(e){
@@ -901,6 +906,11 @@ async function loadGuests(){ return remoteState.guests; }
 async function loadCancelled(){ return remoteState.cancelled; }
 async function loadCanballs(){ return remoteState.canballs; }
 async function loadMemos(){ return remoteState.memos; }
+async function loadSheetLink(){ return remoteState.sheetLink; }
+async function saveSheetLink(url){
+  const result = await saveRemoteKey('sheetLink', url);
+  return result;
+}
 
 async function saveAttendance(){
   // 최초 실행 시 시드 데이터를 한 번에 저장할 때만 사용 (전체 덮어쓰기)
@@ -1477,13 +1487,16 @@ setInterval(()=>{
   refreshFromServer();
 }, 5000);
 
-// ── 구글시트 바로가기 (개인 기기에 링크 저장) ──
-const SHORTCUT_KEY = 'sheet-shortcut-url-v1';
+// ── 구글시트 바로가기 (팀 전체가 공유하는 링크로 구글시트에 저장) ──
+const SHORTCUT_KEY = 'sheet-shortcut-url-v1'; // localStorage는 네트워크 실패 시 대비용 백업일 뿐
 
 function openShortcutModal(){
-  let saved = '';
-  try{ saved = localStorage.getItem(SHORTCUT_KEY) || ''; }catch(e){}
+  let saved = remoteState.sheetLink;
+  if(!saved){
+    try{ saved = localStorage.getItem(SHORTCUT_KEY) || ''; }catch(e){ saved = ''; }
+  }
   document.getElementById('shortcutUrlInput').value = saved;
+  document.getElementById('shortcutModalStatus').textContent = '';
   document.getElementById('shortcutModalBackdrop').classList.add('open');
   document.getElementById('shortcutUrlInput').focus();
 }
@@ -1491,17 +1504,30 @@ function closeShortcutModal(){
   document.getElementById('shortcutModalBackdrop').classList.remove('open');
 }
 
+async function persistShortcutUrl(url){
+  try{ localStorage.setItem(SHORTCUT_KEY, url); }catch(e){} // 백업
+  remoteState.sheetLink = url;
+  return await saveSheetLink(url);
+}
+
 document.getElementById('sheetShortcutBtn').addEventListener('click', openShortcutModal);
 document.getElementById('shortcutModalCancel').addEventListener('click', closeShortcutModal);
 document.getElementById('shortcutModalBackdrop').addEventListener('click', (e)=>{
   if(e.target.id === 'shortcutModalBackdrop') closeShortcutModal();
 });
-document.getElementById('shortcutModalGo').addEventListener('click', ()=>{
+document.getElementById('shortcutModalGo').addEventListener('click', async ()=>{
   const url = document.getElementById('shortcutUrlInput').value.trim();
+  const statusEl = document.getElementById('shortcutModalStatus');
   if(!url) return;
-  try{ localStorage.setItem(SHORTCUT_KEY, url); }catch(e){}
-  window.open(url, '_blank');
-  closeShortcutModal();
+  statusEl.textContent = '저장 중…';
+  const result = await persistShortcutUrl(url);
+  if(result.ok){
+    window.open(url, '_blank');
+    closeShortcutModal();
+  }else{
+    statusEl.textContent = `⚠️ 저장 실패: ${result.error} (일단 이 기기에는 저장해뒀어요)`;
+    window.open(url, '_blank');
+  }
 });
 
 (async function init(){
